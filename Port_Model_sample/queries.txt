@@ -1,0 +1,23 @@
+const double t;
+const int j;
+P=? [F<=t ("ncars_1" & !"ncars_2")]
+P=? [F<=t ("ncars_2" & !"ncars_3")]
+P=? [F<=t ("ntrucks_1" & !"ntrucks_2")]
+P=? [F<=t ("ntrucks_2" & !"ntrucks_3")]
+P=? [F<=t !("ncars_1")]
+P=? [F<=t !("ncars_2")]
+P=? [F<=t !("ntrucks_1")]
+P=? [F<=t !("ntrucks_2")]
+P=? [F<=t (!"ncars_1" & !"ntrucks_1")]
+P=? [F<=t (!"ncars_2" & !"ntrucks_2")]
+P=? [F<=t ("load_in_ship_1")]
+P=? [F<=t ("load_in_ship_2")]
+P=? [F<=t ("load_in_ship_3")]
+filter(avg, P=? [F<=t ("load_in_ship_1")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_2")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_3")], "empty_berth")
+P=? [F<=t ("ncars_in_ship_1")]
+P=? [F<=t ("ncars_in_ship_2")]
+P=? [F<=t ("ntrucks_in_ship_1")]
+P=? [F<=t ("ntrucks_in_ship_2")]
+filter(state, P=? [ F <=t ("ship_full1" | "ship_full2") ], x=j)

@@ -1,0 +1,307 @@
+#  Ship load management
+#  Ship load management
+int max_load = 3;				
+int truck_size = 2;
+int car_size = 1;
+int max_num_cars = 2;
+int max_num_trucks = 2;
+
+# Queues
+ctrl Q = 0;
+atomic ctrl QH = 1;
+atomic ctrl QT = 1;
+ctrl QElem = 2;
+ctrl QAppend = 0;
+atomic ctrl QPop = 1;
+
+# Segments and Segment Links
+ctrl Segment = 0;
+# Start and End Links
+atomic ctrl SLinkS = 1;
+atomic ctrl SLinkE = 1;
+atomic fun ctrl SegName(s) = 0;
+ctrl Accepts = 0;
+atomic ctrl ACars = 0;                                # Nested inside segments that accept Cars
+atomic ctrl ATrucks = 0;
+atomic ctrl Linked = 0;                               # Differentiates Linked segments from unlinked ones 
+
+# Rate control
+ctrl Rates = 0;
+ctrl Rs = 1;
+atomic fun ctrl RCar(r) = 0;
+atomic fun ctrl RTruck(r) = 0;
+float rate_ship_enters_port = 0.1;	
+float rate_car_enters_ship = 0.1;
+float rate_truck_enters_ship = 0.1;
+float rate_ship_leaves_port = 0.1;
+
+# Cars and trucks
+atomic ctrl Car = 0;                                         # A vehicle that carries tourits
+atomic ctrl Truck = 0;                                       # A vehicle that carries cargo
+
+# Berths and Ships
+fun ctrl Berth(b) = 0;                                # A place where the vessel can come in and dock. 
+ctrl Ship = 0;                                        # A freight vessel.
+atomic fun ctrl Load(x) = 0;                          # The current load of a ship (ie, the number of vehicles on it).
+atomic fun ctrl Cars_in_ship(x) = 0;
+atomic fun ctrl Trucks_in_ship(x) = 0;
+ctrl Vehicles = 0;
+
+# Lane management
+ctrl Lanes = 0;
+atomic ctrl Lane = 0;
+
+# PO management
+atomic ctrl Free = 0;
+
+big shipEmpty = Ship.Load(0);
+
+react qAppend =
+  Q.(QAppend.id | QT{x} | id)
+  -[inf]->
+  Q.(/y (QT{y} | QElem{x,y}.id) | id);
+
+react qPop =
+  QPop{e} || Q.(QH{e} | QElem{e,n}.id | id)
+  -[inf]->
+  {e} | id || Q.(QH{n} | id);
+
+react qPopEmpty =
+  QPop{e} || Q.(QH{e} | QT{e})
+  -[inf]->
+  1 || Q.(QH{e} | QT{e});
+
+big move_generic_lhs =
+     Segment.(Q.(QH{e} | QElem{e,n}.id | id) | SLinkS{l} | id)
+  || Segment.(SLinkE{l} | Accepts.id | Q.id | id)
+  || Rs{l}.(id);
+
+big move_generic_rhs =
+     Segment.(Q.(QH{e} | QElem{e,n}.id | id) | SLinkS{l} | id)  
+  || Segment.(SLinkE{l} | Accepts.id | Q.(QAppend.QPop{e} | id) | id)
+  || Rs{l}.(id);
+
+fun react move_car(r) =
+  move_generic_lhs * (Car || id || id || (ACars | id) || id || id || (RCar(r) | id))
+  -[r]->
+  move_generic_rhs * (Car || id || id || (ACars | id) || id || id || (RCar(r) | id));
+
+fun react move_truck(r) =
+  move_generic_lhs * (Truck || id || id || (ATrucks | id) || id || id || (RTruck(r) | id))
+  -[r]->
+  move_generic_rhs * (Truck || id || id || (ATrucks | id) || id || id || (RTruck(r) | id));
+
+big qempty = Q.(/x (QH{x} | QT{x}) | id);
+
+# Lane management (This rule chooses a lane to either be a car lane or a truck lane with equal rates)
+float rchoose = 1.0;
+fun react lane_chooses_car(s) =
+   Segment.(Lane | SegName(s) | Accepts.1 | id)
+   -[rchoose]->
+   Segment.(Lane | SegName(s) | Accepts.ACars | id);
+
+fun react lane_chooses_truck(s) =
+   Segment.(Lane | SegName(s) | Accepts.1 | id)
+   -[rchoose]->
+   Segment.(Lane | SegName(s) | Accepts.ATrucks | id);
+
+fun big lane_allows_car(l) = SegName(l) | Lane | (Accepts.ACars | id);
+fun big lane_allows_truck(l) = SegName(l) | Lane | (Accepts.ATrucks | id);
+
+## Link to Foreign Passport Office
+fun react linkLaneToFPO(lane) =
+       Segment.(SegName(lane) | Q.(/x (QH{x} | QElem{x, n}.id) | id) | id)
+    || Segment.(SegName("ForeignPO") | Free | (qempty * 1) | id)
+    || Rates.id
+  -[1.0]->
+  /fpo (
+       Segment.(SegName(lane) | SLinkS{fpo} | Q.(/x (QH{x} | QElem{x, n}.id) | id) | id)
+    || Segment.(SegName("ForeignPO") | (qempty * 1) | SLinkE{fpo} | id)
+    || Rates.(Rs{fpo}.(RCar(10.0) | RTruck(18.0)) | id));
+
+fun react unlinkLane(lane) =
+  /fpo (
+       Segment.(SegName("ForeignPO") | Q.(/x (QH{x} | QElem{x, n}.id) | id) | SLinkE{fpo} | id)
+    || Segment.(SegName(lane) | SLinkS{fpo} | id)
+    || Rates.(Rs{fpo}.id | id)
+  )
+  -[1.0]->
+       Segment.(SegName("ForeignPO") | Q.(/x (QH{x} | QElem{x, n}.id) | id) | Free | id)
+    || Segment.(SegName(lane) | id)
+    || Rates.id
+  @[0,1,2,3,5];
+
+react linkFPOtoTRC = 
+       Segment.(SegName("ForeignPO") | Q.(/x (QH{x} | QElem{x,n}.Truck) | id) | id)
+    || Segment.(SegName("TRC") | Free | (qempty * 1) | id)  
+    || Rates.id 
+  -[1.0]->
+  /x ( Segment.(SegName("ForeignPO") | SLinkS{x} | Linked | Q.(/x (QH{x} | QElem{x,n}.Truck) | id) | id)
+    || Segment.(SegName("TRC")  | SLinkE{x} | (qempty * 1) | id)
+    || Rates.(Rs{x}.(RTruck(3.0)) | id))
+  if !Linked in param;
+
+react linkFPOtoRFF = 
+       Segment.(SegName("ForeignPO") | Q.(/x (QH{x} | QElem{x,n}.Truck) | id) | id)
+    || Segment.(SegName("RFF")  | Free | (qempty * 1) | id)
+    || Rates.id 
+  -[10.0]->
+  /x ( Segment.(SegName("ForeignPO") | SLinkS{x} | Linked | Q.(/x (QH{x} | QElem{x,n}.Truck) | id) | id)
+    || Segment.(SegName("RFF")  | SLinkE{x} | (qempty * 1) | id)
+    || Rates.(id | Rs{x}.(RTruck(3.0))))
+  if !Linked in param;
+
+react linkFPOtoCRC = 
+       Segment.(SegName("ForeignPO") | Q.(/x (QH{x} | QElem{x,n}.Car) | id) | id)
+    || Segment.(SegName("CRC") | Free | (qempty * 1) | id)  
+    || Rates.id 
+  -[1.0]->
+  /x ( Segment.(SegName("ForeignPO") | SLinkS{x} | Linked | Q.(/x (QH{x} | QElem{x,n}.Car) | id) | id)
+    || Segment.(SegName("CRC")  | SLinkE{x} | (qempty * 1) | id)
+    || Rates.(Rs{x}.(RCar(8.0)) | id))
+  if !Linked in param;
+
+react linkFPOtoRFC = 
+       Segment.(SegName("ForeignPO") | Q.(/x (QH{x} | QElem{x,n}.Car) | id) | id)
+    || Segment.(SegName("RFC")  | Free | (qempty * 1) | id)
+    || Rates.id 
+  -[20.0]->
+  /x ( Segment.(SegName("ForeignPO") | SLinkS{x} | Linked | Q.(/x (QH{x} | QElem{x,n}.Car) | id) | id)
+    || Segment.(SegName("RFC")  | SLinkE{x} | (qempty * 1) | id)
+    || Rates.(id | Rs{x}.(RCar(8.0))))
+  if !Linked in param;
+
+fun react unlinkFPO(seg) = 
+  /x ( Segment.(SegName("ForeignPO") | SLinkS{x} | Linked | id)
+    || Segment.(SegName(seg)        | SLinkE{x} | Q.(/x (QH{x} | QElem{x, n}.id) | id) | id)
+    || Rates.(Rs{x}.id | id))
+  -[1.0]->
+       Segment.(SegName("ForeignPO") | id)
+    || Segment.(SegName(seg) | Free | Q.(/x (QH{x} | QElem{x, n}.id) | id) | id)
+    || Rates.id 
+  @[0,1,2,3,5];
+
+# A ship enters the port for loading. 
+fun react ship_enters_port(n) = 
+	Berth(n).1
+-[rate_ship_enters_port]->
+	Berth(n).(shipEmpty);
+
+# A truck/car enters a ship.
+fun react truck_enters_ship(n,current_load,m) = 
+	Berth(n).(Ship.(Load(current_load) | id)) || Segment.(SegName("Assembly_Line") | Q.(/x (QH{x} | QElem{x, n}.Truck) | id) | id) || Vehicles.(Trucks_in_ship(m)|id)
+-[rate_truck_enters_ship]->
+	Berth(n).(Ship.(Load(current_load+truck_size) | Truck | id)) || Segment.(SegName("Assembly_Line") | Q.(QH{n} | id) | id) || Vehicles.(Trucks_in_ship(m+1)|id);
+fun react car_enters_ship(n,current_load,m) = 
+	Berth(n).(Ship.(Load(current_load) | id)) || Segment.(SegName("Assembly_Line") | Q.(/x (QH{x} | QElem{x, n}.Car) | id) | id) || Vehicles.(Cars_in_ship(m)|id)
+-[rate_car_enters_ship]->
+	Berth(n).(Ship.(Load(current_load+car_size) | Car | id)) || Segment.(SegName("Assembly_Line") | Q.(QH{n} | id) | id) || Vehicles.(Cars_in_ship(m+1)|id);
+
+# A loaded ship leaves the port.
+fun react ship_leaves_port1(n) = 
+	Berth(n).(Ship.(Load(max_load) | id) | id)
+-[rate_ship_leaves_port]->
+	Berth(n).id
+  @[1];
+fun react ship_leaves_port2(n) = 
+	Berth(n).(Ship.(Load(max_load-truck_size+1) | id)) || Segment.(SegName("Assembly_Line") | Q.(/x (QH{x} | QElem{x, n}.Truck) | id) | id)
+-[rate_ship_leaves_port]->
+	Berth(n).1 || Segment.(SegName("Assembly_Line") | Q.(/x (QH{x} | QElem{x, n}.Truck) | id) | id)
+@[1,2];
+
+big s0 = /a20_prt /a26_prt /qrc /qrt /assembly_line /ukpo_from_rff /ukpo_from_trc /ukpo_from_rfc /ukpo_from_crc (
+    # The Port can be entered via roads A20 and A26
+    Segment.(SegName("A20") | SLinkS{a20_prt} | (qempty * (QAppend.Car   | QAppend.Truck  )))
+  | Segment.(SegName("A26") | SLinkS{a26_prt} | (qempty * (QAppend.Truck | QAppend.Car    )))
+    # Once in the Port, the first stop is the foreign Passport Office, which vehicles access using one of these lanes 				   	
+  | Lanes.(
+        Segment.(Lane | SegName("l0") | Accepts.1 | (qempty * 1) | SLinkE{a20_prt} | SLinkE{a26_prt})
+      | Segment.(Lane | SegName("l1") | Accepts.1 | (qempty * 1) | SLinkE{a20_prt} | SLinkE{a26_prt})
+      | Segment.(Lane | SegName("l2") | Accepts.1 | (qempty * 1) | SLinkE{a20_prt} | SLinkE{a26_prt})
+      )
+  | Segment.(SegName("ForeignPO") | (qempty * 1) | Accepts.(ACars | ATrucks) | Free)
+  # After passing FPC, they can be randomly be picked by Truck/Car Random Checkpoint; if not, they proceed via Roard for Freight/Car
+  | Segment.(SegName("TRC") | (qempty * 1) | Free | Accepts.ATrucks | SLinkS{ukpo_from_trc} )
+  | Segment.(SegName("CRC") | (qempty * 1) | Free | Accepts.ACars | SLinkS{ukpo_from_crc} )
+  | Segment.(SegName("RFF") | (qempty * 1) | Free | Accepts.ATrucks | SLinkS{ukpo_from_rff} )  # Road for Freight
+  | Segment.(SegName("RFC") | (qempty * 1) | Free | Accepts.ACars | SLinkS{ukpo_from_rfc} )  # Road for Cars
+  # And then move on to UK Passport Office
+  | Segment.(SegName("UKPO") | (qempty * 1) | Accepts.(ACars | ATrucks) | SLinkS{qrc} | SLinkS{qrt} | SLinkE{ukpo_from_trc} | SLinkE{ukpo_from_rff} | SLinkE{ukpo_from_crc} | SLinkE{ukpo_from_rfc})
+  # Then Cars and Trucks form queues to pass through the Ferry operators (to be added later) and then finally assemble.
+  | Segment.(SegName("QRC") | (qempty * 1) | Accepts.ACars   | SLinkE{qrc} | SLinkS{assembly_line}) 
+  | Segment.(SegName("QRT") | (qempty * 1) | Accepts.ATrucks | SLinkE{qrt} | SLinkS{assembly_line})
+  # Cars and trucks then combine and assemble in the Assembly Line to be loaded on to the ship.
+  | Segment.(SegName("Assembly_Line") | (qempty * 1) | Accepts.(ACars | ATrucks) | SLinkE{assembly_line})
+  # Berths where ships are docked for the process of loading and unloading.
+  | Berth(1).1
+  | Vehicles.(Cars_in_ship(0) | Trucks_in_ship(0))
+  ||
+  Rates.(
+    Rs{a20_prt}.(RCar(10.0) | RTruck(18.0))
+  | Rs{a26_prt}.(RCar(12.0) | RTruck(20.0))
+  | Rs{qrc}.(RCar(8.0) | RTruck(3.0))
+  | Rs{qrt}.(RCar(8.0) | RTruck(3.0))
+  | Rs{assembly_line}.(RCar(1.0) | RTruck(2.0))
+  | Rs{ukpo_from_rff}.(RCar(8.0) | RTruck(3.0))
+  | Rs{ukpo_from_trc}.(RCar(8.0) | RTruck(3.0))
+  | Rs{ukpo_from_rfc}.(RCar(8.0) | RTruck(3.0))
+  | Rs{ukpo_from_crc}.(RCar(8.0) | RTruck(3.0)) ));
+
+# Safety predicates
+big er_1_queue_malformed = Q.(QElem{x,n}.id | id) || Q.(QH{x} | id);  # QElem linked to the head of a different queue
+big er_2_queue_malformed = Q.(QElem{x,n}.id | id) || Q.(QT{x} | id);  # QElem linked to the tail of a different queue
+big er_3_slinkx = /x (SLinkS{x});  # End and Rate missing
+big er_4_slinkx = /x (SLinkE{x});  # Start and Rate missing
+big er_5_slinkx = /x (Rs{x});      # Start and End missing
+big er_6_slinkx = /x (SLinkS{x} || SLinkE{x});  # Rate missing
+big er_7_slinkx = /x (SLinkS{x} || Rs{x});      # End missing
+big er_8_slinkx = /x (SLinkE{x} || Rs{x});      # Start missing
+big er_9_slinks = /x (SLinkS{x} || SLinkS{x});  # two segment starts linked together but without End nor Rate
+big er_10_slinke = /x (SLinkE{x} || SLinkE{x}); # two segment ends linked together but without Start nor Rate
+
+# Predicates for Analysis and Queries
+big ukpo_has_vehicles = SegName("UKPO") | Q.(QH{x} | QElem{x,n}.id | id);
+big fpo_has_vehicles = SegName("ForeignPO") | Q.(QH{x} | QElem{x,n}.id | id);
+big check = Segment.(SegName("Assembly_Line") | (qempty * 1) | Accepts.(ACars | ATrucks) | SLinkE{assembly_line}) | Segment.(SegName("QRC") | id | Accepts.ACars   | SLinkE{qrc} | SLinkS{assembly_line});
+big check2 =  Segment.(SegName("Assembly_Line") | (qempty * 1) | Accepts.(ACars | ATrucks) | SLinkE{assembly_line}) | Segment.(SegName("QRT") | id | Accepts.ATrucks   | SLinkE{qrt} | SLinkS{assembly_line});
+fun big ncars(n) = ppar(n, Car);
+fun big ntrucks(n) = ppar(n, Truck);
+fun big ncars_in_ship(n) = Vehicles.(Cars_in_ship(n)|id);
+fun big ntrucks_in_ship(n) = Vehicles.(Trucks_in_ship(n)|id);
+fun big load_in_ship(n) = Ship.(Load(n)|id);
+big empty_berth = Berth(1).1;
+big ship_full1 = Ship.(Load(max_load) | id);
+big ship_full2 = Berth(1).(Ship.(Load(max_load-truck_size+1) | id)) || Segment.(SegName("Assembly_Line") | Q.(/x (QH{x} | QElem{x, n}.Truck) | id) | id);
+
+begin sbrs
+  float rates = {1.0, 2.0, 3.0, 8.0, 10.0, 12.0, 18.0, 20.0};       # Needs to include all movement rates
+  string lanes = {"l0", "l1", "l2"};                                      # All lane numbers
+  int berths = {1};                                                 # All berth numers
+  int possible_numbers_truck = [0:1:max_num_trucks];
+	int possible_numbers_car = [0:1:max_num_cars];
+  int possible_loads_truck = [0:1:max_load-truck_size];
+	int possible_loads_car = [0:1:max_load-car_size];
+  init s0;
+  rules = [
+      ( qPop, qPopEmpty )
+    , ( qAppend )
+    , { ship_enters_port(berths) }
+    , { ship_leaves_port1(berths), ship_leaves_port2(berths) }
+    , { lane_chooses_car(lanes), lane_chooses_truck(lanes), linkLaneToFPO(lanes), unlinkLane(lanes), 
+        linkFPOtoTRC, linkFPOtoRFF, unlinkFPO("TRC"), unlinkFPO("RFF"), linkFPOtoCRC, linkFPOtoRFC, unlinkFPO("CRC"), unlinkFPO("RFC") }
+    , { move_car(rates), move_truck(rates), truck_enters_ship(berths, possible_loads_truck, possible_numbers_truck), car_enters_ship(berths, possible_loads_car, possible_numbers_car) }
+    ];
+    preds = { 
+               ncars(1), ncars(2), ncars(3), ncars(4), ncars(5), ncars(6) #, ncars(7), ncars(8), ncars(9), ncars(10)
+              #  , ncars(11), ncars(12), ncars(13), ncars(14), ncars(15), ncars(16), ncars(17), ncars(18), ncars(19), ncars(20)   
+               , ntrucks(1), ntrucks(2), ntrucks(3) #, ntrucks(4), ntrucks(5), ntrucks(6), ntrucks(7) 
+              ,lane_allows_car(lanes), lane_allows_truck(lanes), ukpo_has_vehicles, fpo_has_vehicles
+              ,er_1_queue_malformed, er_2_queue_malformed, er_3_slinkx, er_4_slinkx, er_5_slinkx, er_6_slinkx, er_7_slinkx, er_8_slinkx, er_9_slinks, er_10_slinke 
+              ,ncars_in_ship(1), ncars_in_ship(2), ncars_in_ship(3), ncars_in_ship(4), ncars_in_ship(5),ncars_in_ship(6) #, ncars_in_ship(7),ncars_in_ship(8),ncars_in_ship(9),ncars_in_ship(10)
+              #  ,ncars_in_ship(11),ncars_in_ship(12),ncars_in_ship(13),ncars_in_ship(14),ncars_in_ship(15),ncars_in_ship(16),ncars_in_ship(17),ncars_in_ship(18),ncars_in_ship(19),ncars_in_ship(20),ncars_in_ship(21)
+               ,ntrucks_in_ship(1),ntrucks_in_ship(2),ntrucks_in_ship(3) #,ntrucks_in_ship(4),ntrucks_in_ship(5),ntrucks_in_ship(6),ntrucks_in_ship(7)
+               ,load_in_ship(0),load_in_ship(1),load_in_ship(2),load_in_ship(3),load_in_ship(4),load_in_ship(5),load_in_ship(6) #,load_in_ship(7),load_in_ship(8),load_in_ship(9),load_in_ship(10)
+              #  ,load_in_ship(11),load_in_ship(12),load_in_ship(13),load_in_ship(14),load_in_ship(15),load_in_ship(16),load_in_ship(17),load_in_ship(18),load_in_ship(19),load_in_ship(20)
+              , ship_full1, ship_full2, empty_berth
+            };
+end

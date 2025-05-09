@@ -3,5 +3,5 @@ directory="/Bigraph_for_Port/Port_Model_small/bigraph_models"
 
 for file in "$directory"/*.big; do
   BASENAME=$(basename "$file" .big)
-  bigrapher full $file -M 1000000 -l ${BASENAME}.csl -p ${BASENAME}.tra -r ${BASENAME}.srew --solver=GBS &
+  bigrapher full $file -M 200000 -l ${BASENAME}.csl -p ${BASENAME}.tra --solver=GBS &
 done

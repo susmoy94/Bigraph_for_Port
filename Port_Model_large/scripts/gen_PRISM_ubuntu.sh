@@ -17,7 +17,7 @@ for file in "$directory"/*.tra; do
   for ((i=1; i<=n; i++)); do
   BASENAME2=$(basename "$file" .tra)
   IFS='_' read -r -a val <<< "$BASENAME2"
-  prism -importtrans $file ${BASENAME2}.csl -ctmc -prop ${i} -const t=0:0.5:300 -exportresults /Bigraph_for_Port/Port_Model_large/analysis/${BASENAME2}_${i}_csv.txt:csv
+  prism -importtrans $file -importlabels ${BASENAME2}.lab -ctmc  queries.props -prop ${i} -const t=0:3:300 -exportresults /users/staff/susmoy/Port_Model_Bounded_2/${BASENAME2}_${i}_csv.txt:csv -maxiters 500000
   done
 done
 

@@ -38,3 +38,57 @@ label "ntrucks_in_ship_3" = false;
 label "ship_full1" = false;
 label "ship_full2" = false;
 label "ukpo_has_vehicles" = x = 24;
+const double t;
+const int j;
+
+// 7
+P=? [F<=t ("ncars_1" & !"ncars_2")]
+P=? [F<=t ("ncars_2" & !"ncars_3")]
+P=? [F<=t ("ncars_3" & !"ncars_4")]
+P=? [F<=t ("ncars_4" & !"ncars_5")]
+P=? [F<=t ("ncars_5" & !"ncars_6")]
+P=? [F<=t ("ntrucks_1" & !"ntrucks_2")]
+P=? [F<=t ("ntrucks_2" & !"ntrucks_3")]
+
+// 9 
+P=? [F<=t !("ncars_1")]
+P=? [F<=t !("ncars_2")]
+P=? [F<=t !("ncars_3")]
+P=? [F<=t !("ncars_4")]
+P=? [F<=t !("ncars_5")]
+P=? [F<=t !("ncars_6")]
+P=? [F<=t !("ntrucks_1")]
+P=? [F<=t !("ntrucks_2")]
+P=? [F<=t !("ntrucks_3")]
+
+// 3
+P=? [F<=t (!"ncars_1" & !"ntrucks_1")]
+P=? [F<=t (!"ncars_2" & !"ntrucks_2")]
+P=? [F<=t (!"ncars_3" & !"ntrucks_3")]
+
+// 6
+P=? [F<=t ("load_in_ship_1")]
+P=? [F<=t ("load_in_ship_2")]
+P=? [F<=t ("load_in_ship_3")]
+P=? [F<=t ("load_in_ship_4")]
+P=? [F<=t ("load_in_ship_5")]
+P=? [F<=t ("load_in_ship_6")]
+
+// 6
+filter(avg, P=? [F<=t ("load_in_ship_1")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_2")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_3")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_4")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_5")], "empty_berth")
+filter(avg, P=? [F<=t ("load_in_ship_6")], "empty_berth")
+
+// 9
+P=? [F<=t ("ncars_in_ship_1")]
+P=? [F<=t ("ncars_in_ship_2")]
+P=? [F<=t ("ncars_in_ship_3")]
+P=? [F<=t ("ncars_in_ship_4")]
+P=? [F<=t ("ncars_in_ship_5")]
+P=? [F<=t ("ncars_in_ship_6")]
+P=? [F<=t ("ntrucks_in_ship_1")]
+P=? [F<=t ("ntrucks_in_ship_2")]
+P=? [F<=t ("ntrucks_in_ship_3")]
